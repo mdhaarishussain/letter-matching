@@ -25,3 +25,11 @@ Open [http://localhost:3000](http://localhost:3000).
 - `npm run build` - production build
 - `npm run start` - run the production app
 - `npm run lint` - run lint checks
+
+## Vercel Deployment Note
+
+If your Vercel project was previously configured as a static site with `Output Directory = public`, deployment can fail for Next.js apps with:
+
+`No Output Directory named "public" found after the Build completed.`
+
+This repository now includes `vercel.json` to explicitly deploy as a **Next.js** project with output from `.next`. If your dashboard still has an old override, clear the Output Directory in Project Settings so Vercel uses framework defaults.

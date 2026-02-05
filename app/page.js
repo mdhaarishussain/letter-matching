@@ -7,6 +7,16 @@ const ROUNDS_PER_LEVEL = 20;
 const ROOM_STATE_KEY = 'letter-room-state-v2';
 const ROOM_ROLE_KEY = 'letter-room-roles-v2';
 const CHANNEL_NAME = 'letter-room-channel-v2';
+const ROOM_CLIENT_ID_KEY = 'letter-room-client-id-v1';
+
+function safeParse(value, fallback) {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
 
 function shuffle(list) {
   const cloned = [...list];
@@ -220,8 +230,7 @@ function applyAction(state, action) {
 }
 
 function loadOrInitRole(clientId) {
-  const raw = localStorage.getItem(ROOM_ROLE_KEY);
-  const roles = raw ? JSON.parse(raw) : { teacher: null, student: null };
+  const roles = safeParse(localStorage.getItem(ROOM_ROLE_KEY), { teacher: null, student: null });
 
   if (roles.teacher === clientId) return 'teacher';
   if (roles.student === clientId) return 'student';
@@ -242,7 +251,20 @@ function loadOrInitRole(clientId) {
 }
 
 export default function Home() {
-  const [clientId] = useState(() => `client-${Math.random().toString(36).slice(2, 9)}`);
+  const [clientId] = useState(() => {
+    if (typeof window === 'undefined') {
+      return `client-${Math.random().toString(36).slice(2, 9)}`;
+    }
+
+    const existing = localStorage.getItem(ROOM_CLIENT_ID_KEY);
+    if (existing) {
+      return existing;
+    }
+
+    const generated = `client-${Math.random().toString(36).slice(2, 9)}`;
+    localStorage.setItem(ROOM_CLIENT_ID_KEY, generated);
+    return generated;
+  });
   const [role, setRole] = useState('observer');
   const [state, setState] = useState(initialRoomState);
 
@@ -251,14 +273,14 @@ export default function Home() {
     setRole(assigned);
 
     const saved = localStorage.getItem(ROOM_STATE_KEY);
-    const loadedState = saved ? JSON.parse(saved) : initialRoomState();
+    const loadedState = safeParse(saved, initialRoomState());
     setState(loadedState);
     if (!saved) localStorage.setItem(ROOM_STATE_KEY, JSON.stringify(loadedState));
 
     const channel = new BroadcastChannel(CHANNEL_NAME);
     const onStorage = (event) => {
       if (event.key === ROOM_STATE_KEY && event.newValue) {
-        setState(JSON.parse(event.newValue));
+        setState(safeParse(event.newValue, initialRoomState()));
       }
     };
 
@@ -287,7 +309,7 @@ export default function Home() {
         return;
       }
 
-      const latest = JSON.parse(latestRaw);
+      const latest = safeParse(latestRaw, initialRoomState());
       if (latest.flash?.at === state.flash.at) {
         const cleaned = { ...latest, flash: null };
         setState(cleaned);

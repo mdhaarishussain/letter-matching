@@ -1,22 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 const ALPHABETS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const ROUNDS_PER_LEVEL = 20;
-const ROOM_STATE_KEY = 'letter-room-state-v2';
-const ROOM_ROLE_KEY = 'letter-room-roles-v2';
-const CHANNEL_NAME = 'letter-room-channel-v2';
-const ROOM_CLIENT_ID_KEY = 'letter-room-client-id-v1';
-
-function safeParse(value, fallback) {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
-}
 
 function shuffle(list) {
   const cloned = [...list];
@@ -31,436 +18,289 @@ function pickUnique(count) {
   return shuffle(ALPHABETS).slice(0, count);
 }
 
-function makeRounds() {
-  return {
-    1: Array.from({ length: ROUNDS_PER_LEVEL }, () => {
-      const target = pickUnique(1)[0];
-      const distractor = pickUnique(2).find((item) => item !== target) || 'B';
-      return {
-        type: 'single',
-        uppers: [target],
-        lowers: shuffle([target.toLowerCase(), distractor.toLowerCase()])
-      };
-    }),
-    2: Array.from({ length: ROUNDS_PER_LEVEL }, () => {
-      const uppers = pickUnique(5);
-      return {
-        type: 'row5',
-        uppers,
-        lowers: shuffle(uppers.map((item) => item.toLowerCase()))
-      };
-    }),
-    3: Array.from({ length: ROUNDS_PER_LEVEL }, () => {
-      const uppers = pickUnique(9);
-      return {
-        type: 'matrix9',
-        uppers,
-        lowers: shuffle(uppers.map((item) => item.toLowerCase()))
-      };
-    })
-  };
+function levelMeta(level) {
+  if (level === 1) return { pairs: 1, title: 'Level 1 · Single Pair Practice', mode: 'practice' };
+  if (level === 2) return { pairs: 5, title: 'Level 2 · Two Row Practice', mode: 'practice' };
+  if (level === 3) return { pairs: 9, title: 'Level 3 · 3×3 Matrix Practice', mode: 'practice' };
+  return { pairs: 6, title: 'Level 4 · Final Test (No Retry)', mode: 'test' };
 }
 
-function initialRoomState() {
+function makeRounds(level) {
+  const { pairs } = levelMeta(level);
+  return Array.from({ length: ROUNDS_PER_LEVEL }, () => {
+    const uppers = pickUnique(pairs);
+    return {
+      uppers,
+      lowers: shuffle(uppers.map((item) => item.toLowerCase()))
+    };
+  });
+}
+
+function makeInitialState(level) {
   return {
-    level: 1,
+    level,
     started: false,
     roundIndex: 0,
-    rounds: makeRounds(),
+    rounds: makeRounds(level),
+    selectedUpper: null,
+    matchedUppers: [],
+    failedUppers: [],
     score: { correct: 0, wrong: 0 },
-    selectedUpper: null,
-    selectedLower: null,
-    matchedUppers: [],
-    flash: null,
-    attempts: []
+    feedback: null,
+    streak: 0
   };
 }
 
-function pairCount(level) {
-  if (level === 1) return 1;
-  if (level === 2) return 5;
-  return 9;
+function toneFor(upper, state) {
+  if (state.matchedUppers.includes(upper)) return 'correct';
+  if (state.failedUppers.includes(upper)) return 'wrong';
+  if (state.selectedUpper === upper) return 'selected';
+  if (state.feedback?.upper === upper) return state.feedback.result;
+  return 'neutral';
 }
 
-function currentRound(state) {
-  return state.rounds[state.level][state.roundIndex];
+function toneForLower(lower, state) {
+  const upper = lower.toUpperCase();
+  if (state.matchedUppers.includes(upper)) return 'correct';
+  if (state.failedUppers.includes(upper)) return 'wrong';
+  if (state.feedback?.lower === lower) return state.feedback.result;
+  return 'neutral';
 }
 
-function moveToNextRound(state) {
-  const total = state.rounds[state.level].length;
-  if (state.roundIndex + 1 >= total) {
-    return {
-      ...state,
-      started: false,
-      roundIndex: total,
-      selectedUpper: null,
-      selectedLower: null,
-      matchedUppers: [],
-      flash: null
-    };
-  }
-
-  return {
-    ...state,
-    roundIndex: state.roundIndex + 1,
-    selectedUpper: null,
-    selectedLower: null,
-    matchedUppers: [],
-    flash: null
-  };
+function createSound() {
+  if (typeof window === 'undefined') return null;
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  return new AudioCtx();
 }
 
-function applyAction(state, action) {
-  if (action.type === 'SYNC') {
-    return action.payload;
-  }
-
-  if (action.type === 'SWITCH_LEVEL') {
-    return {
-      ...state,
-      level: action.level,
-      started: false,
-      roundIndex: 0,
-      score: { correct: 0, wrong: 0 },
-      selectedUpper: null,
-      selectedLower: null,
-      matchedUppers: [],
-      flash: null,
-      attempts: []
-    };
-  }
-
-  if (action.type === 'START_ACTIVITY') {
-    return {
-      ...state,
-      started: true,
-      roundIndex: 0,
-      rounds: makeRounds(),
-      score: { correct: 0, wrong: 0 },
-      selectedUpper: null,
-      selectedLower: null,
-      matchedUppers: [],
-      flash: null,
-      attempts: []
-    };
-  }
-
-  if (!state.started) {
-    return state;
-  }
-
-  const round = currentRound(state);
-  if (!round) {
-    return state;
-  }
-
-  if (action.type === 'SELECT_UPPER') {
-    if (state.matchedUppers.includes(action.upper)) {
-      return state;
-    }
-
-    return {
-      ...state,
-      selectedUpper: action.upper,
-      selectedLower: null,
-      flash: null
-    };
-  }
-
-  if (action.type === 'SELECT_LOWER') {
-    if (!state.selectedUpper) return state;
-
-    const expected = state.selectedUpper.toLowerCase();
-    const isCorrect = action.lower === expected;
-    const now = Date.now();
-
-    const base = {
-      ...state,
-      selectedLower: action.lower,
-      flash: {
-        upper: state.selectedUpper,
-        lower: action.lower,
-        result: isCorrect ? 'correct' : 'wrong',
-        at: now
-      },
-      score: {
-        correct: state.score.correct + (isCorrect ? 1 : 0),
-        wrong: state.score.wrong + (isCorrect ? 0 : 1)
-      },
-      attempts: [
-        {
-          at: now,
-          level: state.level,
-          slide: state.roundIndex + 1,
-          upper: state.selectedUpper,
-          lower: action.lower,
-          result: isCorrect ? 'correct' : 'wrong'
-        },
-        ...state.attempts
-      ].slice(0, 18)
-    };
-
-    if (!isCorrect) {
-      return {
-        ...base,
-        selectedUpper: null,
-        selectedLower: null
-      };
-    }
-
-    const updatedMatched = [...state.matchedUppers, state.selectedUpper];
-    const complete = updatedMatched.length >= pairCount(state.level);
-
-    if (complete) {
-      return moveToNextRound({
-        ...base,
-        matchedUppers: updatedMatched
-      });
-    }
-
-    return {
-      ...base,
-      selectedUpper: null,
-      selectedLower: null,
-      matchedUppers: updatedMatched
-    };
-  }
-
-  return state;
-}
-
-function loadOrInitRole(clientId) {
-  const roles = safeParse(localStorage.getItem(ROOM_ROLE_KEY), { teacher: null, student: null });
-
-  if (roles.teacher === clientId) return 'teacher';
-  if (roles.student === clientId) return 'student';
-
-  if (!roles.teacher) {
-    roles.teacher = clientId;
-    localStorage.setItem(ROOM_ROLE_KEY, JSON.stringify(roles));
-    return 'teacher';
-  }
-
-  if (!roles.student) {
-    roles.student = clientId;
-    localStorage.setItem(ROOM_ROLE_KEY, JSON.stringify(roles));
-    return 'student';
-  }
-
-  return 'observer';
+function playTone(context, freq, duration, type = 'sine', gainValue = 0.06) {
+  if (!context) return;
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.value = gainValue;
+  osc.connect(gain);
+  gain.connect(context.destination);
+  osc.start();
+  osc.stop(context.currentTime + duration);
 }
 
 export default function Home() {
-  const [clientId] = useState(() => {
-    if (typeof window === 'undefined') {
-      return `client-${Math.random().toString(36).slice(2, 9)}`;
+  const [state, setState] = useState(() => makeInitialState(1));
+  const [level, setLevel] = useState(1);
+  const [showFinalScore, setShowFinalScore] = useState(false);
+  const audioRef = useRef(null);
+
+  const currentRound = useMemo(() => state.rounds[state.roundIndex], [state.roundIndex, state.rounds]);
+  const isFinalTest = levelMeta(state.level).mode === 'test';
+
+  const ensureAudio = async () => {
+    if (!audioRef.current) {
+      audioRef.current = createSound();
+    }
+    if (audioRef.current?.state === 'suspended') {
+      await audioRef.current.resume();
+    }
+    return audioRef.current;
+  };
+
+  const soundClick = async () => {
+    const ctx = await ensureAudio();
+    playTone(ctx, 540, 0.06, 'triangle', 0.04);
+  };
+
+  const soundCorrect = async () => {
+    const ctx = await ensureAudio();
+    playTone(ctx, 660, 0.08, 'sine', 0.05);
+    setTimeout(() => playTone(ctx, 860, 0.11, 'sine', 0.06), 80);
+  };
+
+  const soundWrong = async () => {
+    const ctx = await ensureAudio();
+    playTone(ctx, 220, 0.1, 'sawtooth', 0.05);
+    setTimeout(() => playTone(ctx, 180, 0.12, 'sawtooth', 0.04), 90);
+  };
+
+  const switchLevel = (nextLevel) => {
+    setLevel(nextLevel);
+    setState(makeInitialState(nextLevel));
+    setShowFinalScore(false);
+  };
+
+  const startActivity = () => {
+    setState((prev) => ({
+      ...makeInitialState(level),
+      started: true
+    }));
+    setShowFinalScore(false);
+  };
+
+  const moveRoundIfDone = (nextState) => {
+    const { pairs, mode } = levelMeta(nextState.level);
+    const solvedCount = nextState.matchedUppers.length + (mode === 'test' ? nextState.failedUppers.length : 0);
+    if (solvedCount < pairs) {
+      return nextState;
     }
 
-    const existing = localStorage.getItem(ROOM_CLIENT_ID_KEY);
-    if (existing) {
-      return existing;
+    if (nextState.roundIndex + 1 >= ROUNDS_PER_LEVEL) {
+      return {
+        ...nextState,
+        started: false,
+        roundIndex: ROUNDS_PER_LEVEL
+      };
     }
 
-    const generated = `client-${Math.random().toString(36).slice(2, 9)}`;
-    localStorage.setItem(ROOM_CLIENT_ID_KEY, generated);
-    return generated;
-  });
-  const [role, setRole] = useState('observer');
-  const [state, setState] = useState(initialRoomState);
-
-  useEffect(() => {
-    const assigned = loadOrInitRole(clientId);
-    setRole(assigned);
-
-    const saved = localStorage.getItem(ROOM_STATE_KEY);
-    const loadedState = safeParse(saved, initialRoomState());
-    setState(loadedState);
-    if (!saved) localStorage.setItem(ROOM_STATE_KEY, JSON.stringify(loadedState));
-
-    const channel = new BroadcastChannel(CHANNEL_NAME);
-    const onStorage = (event) => {
-      if (event.key === ROOM_STATE_KEY && event.newValue) {
-        setState(safeParse(event.newValue, initialRoomState()));
-      }
+    return {
+      ...nextState,
+      roundIndex: nextState.roundIndex + 1,
+      selectedUpper: null,
+      matchedUppers: [],
+      failedUppers: [],
+      feedback: null
     };
+  };
 
-    channel.onmessage = (event) => {
-      if (event.data?.type === 'ROOM_STATE') {
-        setState(event.data.payload);
-      }
-    };
+  const onUpperSelect = async (upper) => {
+    if (!state.started || !currentRound) return;
+    if (state.matchedUppers.includes(upper) || state.failedUppers.includes(upper)) return;
+    await soundClick();
+    setState((prev) => ({ ...prev, selectedUpper: upper, feedback: null }));
+  };
 
-    window.addEventListener('storage', onStorage);
+  const onLowerSelect = async (lower) => {
+    if (!state.started || !currentRound || !state.selectedUpper) return;
+    const upper = state.selectedUpper;
+    const isCorrect = upper.toLowerCase() === lower;
 
-    return () => {
-      channel.close();
-      window.removeEventListener('storage', onStorage);
-    };
-  }, [clientId]);
-
-  useEffect(() => {
-    if (!state.flash?.at) {
+    if (isCorrect) {
+      await soundCorrect();
+      setState((prev) => {
+        const next = {
+          ...prev,
+          matchedUppers: [...prev.matchedUppers, upper],
+          score: { ...prev.score, correct: prev.score.correct + 1 },
+          streak: prev.streak + 1,
+          selectedUpper: null,
+          feedback: { result: 'correct', upper, lower }
+        };
+        return moveRoundIfDone(next);
+      });
       return;
     }
 
-    const timer = setTimeout(() => {
-      const latestRaw = localStorage.getItem(ROOM_STATE_KEY);
-      if (!latestRaw) {
-        return;
-      }
-
-      const latest = safeParse(latestRaw, initialRoomState());
-      if (latest.flash?.at === state.flash.at) {
-        const cleaned = { ...latest, flash: null };
-        setState(cleaned);
-        localStorage.setItem(ROOM_STATE_KEY, JSON.stringify(cleaned));
-        const channel = new BroadcastChannel(CHANNEL_NAME);
-        channel.postMessage({ type: 'ROOM_STATE', payload: cleaned });
-        channel.close();
-      }
-    }, 900);
-
-    return () => clearTimeout(timer);
-  }, [state.flash]);
-
-  const persist = (nextState) => {
-    setState(nextState);
-    localStorage.setItem(ROOM_STATE_KEY, JSON.stringify(nextState));
-    const channel = new BroadcastChannel(CHANNEL_NAME);
-    channel.postMessage({ type: 'ROOM_STATE', payload: nextState });
-    channel.close();
+    await soundWrong();
+    setState((prev) => {
+      const mode = levelMeta(prev.level).mode;
+      const failedUppers = mode === 'test' ? [...prev.failedUppers, upper] : prev.failedUppers;
+      const next = {
+        ...prev,
+        failedUppers,
+        score: { ...prev.score, wrong: prev.score.wrong + 1 },
+        streak: 0,
+        selectedUpper: null,
+        feedback: { result: 'wrong', upper, lower }
+      };
+      return moveRoundIfDone(next);
+    });
   };
 
-  const dispatch = (action) => {
-    if ((action.type === 'START_ACTIVITY' || action.type === 'SWITCH_LEVEL') && role !== 'teacher') {
-      return;
-    }
-
-    if ((action.type === 'SELECT_UPPER' || action.type === 'SELECT_LOWER') && role !== 'student') {
-      return;
-    }
-
-    const next = applyAction(state, action);
-    persist(next);
-  };
-
-  const round = useMemo(() => {
-    const rounds = state.rounds[state.level] || [];
-    return rounds[state.roundIndex];
-  }, [state]);
-
-  const totalSlides = state.rounds[state.level]?.length ?? ROUNDS_PER_LEVEL;
-  const ended = state.roundIndex >= totalSlides;
-
-  const cardTone = (letter, kind) => {
-    if (!round) return 'neutral';
-    const normalized = kind === 'upper' ? letter : letter.toUpperCase();
-
-    if (state.matchedUppers.includes(normalized)) return 'correct';
-    if (state.flash && state.flash.at && Date.now() - state.flash.at < 900) {
-      const hitUpper = kind === 'upper' && state.flash.upper === letter;
-      const hitLower = kind === 'lower' && state.flash.lower === letter.toLowerCase();
-      if (hitUpper || hitLower) {
-        return state.flash.result;
-      }
-    }
-
-    if (kind === 'upper' && state.selectedUpper === letter) return 'selected';
-    return 'neutral';
-  };
+  const progressSlide = Math.min(state.roundIndex + (state.started ? 1 : 0), ROUNDS_PER_LEVEL);
 
   return (
     <main className="page premium">
       <header className="hero">
-        <p className="pill">Interactive Classroom Activity</p>
+        <p className="pill">Student Practice Arena</p>
         <h1>Find my little brother</h1>
-        <p className="subtitle">Premium uppercase ↔ lowercase matching for kindergarten learners</p>
+        <p className="subtitle">Choose uppercase first, then match lowercase. Learn with sounds and visual rewards.</p>
       </header>
 
       <section className="teacherPanel glass">
         <div>
-          <h2>Teacher Controls</h2>
-          <p className="meta">Role: <strong>{role.toUpperCase()}</strong> (first joiner = teacher, second = student)</p>
+          <h2>Choose a Level</h2>
+          <p className="meta">Levels 1–3 are practice. Level 4 is final test mode with no retry per pair.</p>
         </div>
         <div className="levelGroup">
-          <button className={state.level === 1 ? 'active' : ''} onClick={() => dispatch({ type: 'SWITCH_LEVEL', level: 1 })}>Level 1 · Single Pair</button>
-          <button className={state.level === 2 ? 'active' : ''} onClick={() => dispatch({ type: 'SWITCH_LEVEL', level: 2 })}>Level 2 · Two Rows (5 pairs)</button>
-          <button className={state.level === 3 ? 'active' : ''} onClick={() => dispatch({ type: 'SWITCH_LEVEL', level: 3 })}>Level 3 · 3×3 Matrix</button>
+          {[1, 2, 3, 4].map((lv) => (
+            <button key={lv} className={state.level === lv ? 'active' : ''} onClick={() => switchLevel(lv)}>
+              {levelMeta(lv).title}
+            </button>
+          ))}
         </div>
-        <button className="startBtn" onClick={() => dispatch({ type: 'START_ACTIVITY' })}>Start Activity</button>
+        <button className="startBtn" onClick={startActivity}>Start Practice</button>
       </section>
 
       <section className="scoreboard glass">
-        <span>Slides: {Math.min(state.roundIndex + (state.started ? 1 : 0), totalSlides)} / {totalSlides}</span>
+        <span>Slides: {progressSlide} / {ROUNDS_PER_LEVEL}</span>
         <span className="ok">✅ Correct: {state.score.correct}</span>
         <span className="bad">❌ Wrong: {state.score.wrong}</span>
+        <span>🔥 Streak: {state.streak}</span>
       </section>
 
-      {!state.started && !ended && (
-        <p className="hint">{role === 'teacher' ? 'Select level and start the activity.' : 'Wait for teacher to start, then tap uppercase and lowercase to match.'}</p>
+      {!state.started && state.roundIndex < ROUNDS_PER_LEVEL && (
+        <p className="hint">Tap Start Practice. In final test level, each uppercase gets only one chance.</p>
       )}
 
-      {state.started && round && !ended && (
+      {state.started && currentRound && (
         <section className="gameArea glass">
-          <div className="instruction">Tap <strong>UPPERCASE</strong> first (blue halo), then tap matching lowercase.</div>
+          <div className="instruction">Tap <strong>UPPERCASE</strong> first (blue halo), then matching lowercase.</div>
 
-          <div className={state.level === 1 ? 'upperRow single' : state.level === 2 ? 'upperRow rowFive' : 'upperRow grid3'}>
-            {round.uppers.map((upper) => (
+          <div className={state.level === 1 ? 'upperRow single' : state.level === 2 ? 'upperRow rowFive' : state.level === 3 ? 'upperRow grid3' : 'upperRow rowFive'}>
+            {currentRound.uppers.map((upper) => (
               <button
                 key={`u-${upper}`}
-                className={`letterCard upper ${cardTone(upper, 'upper')}`}
-                onClick={() => dispatch({ type: 'SELECT_UPPER', upper })}
+                className={`letterCard upper ${toneFor(upper, state)}`}
+                onClick={() => onUpperSelect(upper)}
               >
                 <span>{upper}</span>
-                {cardTone(upper, 'upper') === 'correct' && <em className="badge">✓</em>}
-                {cardTone(upper, 'upper') === 'wrong' && <em className="badge wrong">✕</em>}
+                {toneFor(upper, state) === 'correct' && <em className="badge">✓</em>}
+                {toneFor(upper, state) === 'wrong' && <em className="badge wrong">✕</em>}
               </button>
             ))}
           </div>
 
-          <div className={state.level === 1 ? 'lowerRow single' : state.level === 2 ? 'lowerRow rowFive' : 'lowerRow grid3'}>
-            {round.lowers.map((lower) => (
+          <div className={state.level === 1 ? 'lowerRow single' : state.level === 2 ? 'lowerRow rowFive' : state.level === 3 ? 'lowerRow grid3' : 'lowerRow rowFive'}>
+            {currentRound.lowers.map((lower) => (
               <button
                 key={`l-${lower}`}
-                className={`letterCard lower ${cardTone(lower, 'lower')}`}
-                onClick={() => dispatch({ type: 'SELECT_LOWER', lower })}
+                className={`letterCard lower ${toneForLower(lower, state)}`}
+                onClick={() => onLowerSelect(lower)}
               >
                 <span>{lower}</span>
-                {cardTone(lower, 'lower') === 'correct' && <em className="badge">✓</em>}
-                {cardTone(lower, 'lower') === 'wrong' && <em className="badge wrong">✕</em>}
+                {toneForLower(lower, state) === 'correct' && <em className="badge">✓</em>}
+                {toneForLower(lower, state) === 'wrong' && <em className="badge wrong">✕</em>}
               </button>
             ))}
           </div>
 
-          {state.flash?.result === 'correct' && <p className="feedback good">🎉 Perfect match!</p>}
-          {state.flash?.result === 'wrong' && <p className="feedback bad">❌ Not a match. Try another pair.</p>}
+          {state.feedback?.result === 'correct' && <p className="feedback good">🎉 Perfect match!</p>}
+          {state.feedback?.result === 'wrong' && (
+            <p className="feedback bad">
+              {isFinalTest ? '❌ Final test: no retry for this letter.' : '❌ Not a match. Try again.'}
+            </p>
+          )}
         </section>
       )}
 
-      {ended && (
+      {state.roundIndex >= ROUNDS_PER_LEVEL && !showFinalScore && (
         <section className="completeCard glass">
-          <h3>Activity Complete 🎓</h3>
+          <h3>{isFinalTest ? 'Final Test Complete 🏁' : 'Practice Complete 🎓'}</h3>
           <p>Total Correct: {state.score.correct}</p>
           <p>Total Wrong: {state.score.wrong}</p>
-          {role === 'teacher' && <button onClick={() => dispatch({ type: 'START_ACTIVITY' })}>Run Again</button>}
+          <button onClick={() => setShowFinalScore(true)}>See Final Score Card</button>
         </section>
       )}
 
-      <section className="attemptPanel glass">
-        <h3>Teacher Live View · Student Attempts</h3>
-        {state.attempts.length === 0 ? (
-          <p className="muted">No attempts yet.</p>
-        ) : (
-          <ul>
-            {state.attempts.map((item) => (
-              <li key={`${item.at}-${item.upper}-${item.lower}`}>
-                L{item.level} · Slide {item.slide}: {item.upper} → {item.lower} {' '}
-                <strong className={item.result === 'correct' ? 'ok' : 'bad'}>{item.result}</strong>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {showFinalScore && (
+        <section className="attemptPanel glass">
+          <h3>Final Score Card</h3>
+          <p><strong>Level:</strong> {levelMeta(state.level).title}</p>
+          <p><strong>Accuracy:</strong> {Math.round((state.score.correct / Math.max(1, state.score.correct + state.score.wrong)) * 100)}%</p>
+          <p><strong>Correct:</strong> {state.score.correct} | <strong>Wrong:</strong> {state.score.wrong}</p>
+          <p className="muted">Tip: Replay earlier levels to improve speed and confidence before final test.</p>
+        </section>
+      )}
     </main>
   );
 }

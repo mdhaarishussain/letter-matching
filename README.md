@@ -4,13 +4,13 @@ A kindergarten-friendly alphabet game where children match lowercase letters to 
 
 ## Features
 
-- **Level 1 (Single Pair):** pick uppercase first, then matching lowercase.
-- **Level 2 (Two Rows, 5 pairs):** 5 uppercase letters + 5 scrambled lowercase letters on each slide.
-- **Level 3 (3x3 Matrix):** 9 uppercase letters + 9 scrambled lowercase letters per slide.
-- **Teacher/Student mode (no login):** first joiner becomes teacher, second joiner becomes student.
-- **Live teacher view:** teacher sees student attempts in real-time (single teacher + single student).
-- **Premium feedback effects:** blue halo for selected uppercase, green halo + tick for correct, red halo + cross for wrong.
-- **Slide-based rounds:** 20 slides per level.
+- **Level 1 (Single Pair Practice):** one uppercase + lowercase matching pair per slide.
+- **Level 2 (Two Row Practice):** 5 uppercase letters with 5 scrambled lowercase matches.
+- **Level 3 (3×3 Matrix Practice):** 9 uppercase/lowercase pair matching per slide.
+- **Level 4 (Final Test):** no retry per uppercase; every attempt is scored immediately.
+- **Premium feedback:** blue selection halo, green halo + tick for correct, red halo + cross for wrong.
+- **Web Audio effects:** real-time generated tones for click, correct, and wrong interactions.
+- **Slide-based practice:** 20 slides per level with final score card.
 
 ## Getting Started
 

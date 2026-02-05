@@ -1,0 +1,204 @@
+:root {
+  color-scheme: light;
+  font-family: 'Trebuchet MS', 'Comic Sans MS', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #fefdf9 0%, #eef8ff 100%);
+  color: #1d2b44;
+}
+
+.page {
+  min-height: 100vh;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.topBar {
+  text-align: center;
+}
+
+.topBar h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  color: #21409a;
+}
+
+.teacherPanel {
+  margin: 1.25rem auto;
+  background: #ffffff;
+  border: 3px solid #ffd091;
+  border-radius: 16px;
+  padding: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.levelGroup {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+button {
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+.levelGroup button,
+.startBtn {
+  padding: 0.6rem 0.95rem;
+  font-size: 1rem;
+  background: #dde8ff;
+  color: #1d2b44;
+}
+
+.levelGroup .active {
+  background: #1e4ac9;
+  color: #fff;
+}
+
+.startBtn {
+  background: #0c2744;
+  color: white;
+  font-weight: 700;
+}
+
+.scoreboard {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  font-weight: 700;
+}
+
+.ok {
+  color: #0c9f4d;
+}
+
+.bad {
+  color: #d03e3e;
+}
+
+.hint {
+  text-align: center;
+  margin-top: 2rem;
+}
+
+.gameArea {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.targetCard,
+.letterCard {
+  background: #fff;
+  border: 4px solid #ff9d3c;
+  border-radius: 22px;
+  min-width: 170px;
+  min-height: 145px;
+  display: grid;
+  place-items: center;
+  font-size: clamp(2.8rem, 8vw, 5rem);
+  box-shadow: 0 8px 16px rgba(19, 36, 77, 0.2);
+}
+
+.choices {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.twoCol .letterCard {
+  min-width: 230px;
+}
+
+.rowWrap {
+  flex-wrap: wrap;
+  max-width: 850px;
+}
+
+.rowWrap .letterCard {
+  min-width: 130px;
+  min-height: 120px;
+}
+
+.letterCard {
+  color: #1f2a44;
+}
+
+.selected {
+  outline: 4px solid #2f7df8;
+}
+
+.correct .targetCard,
+.correct .letterCard.selected,
+.correct .letterCard:focus-visible {
+  animation: pop 350ms ease;
+}
+
+.wrong .targetCard,
+.wrong .letterCard.selected {
+  animation: shake 250ms linear 2;
+}
+
+.feedback {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.feedback.good {
+  color: #048143;
+}
+
+.feedback.bad {
+  color: #ba2d2d;
+}
+
+.completeCard {
+  margin: 2rem auto;
+  max-width: 380px;
+  background: white;
+  border-radius: 18px;
+  border: 3px solid #a7d7ff;
+  text-align: center;
+  padding: 1.2rem;
+}
+
+.completeCard button {
+  margin-top: 0.75rem;
+  padding: 0.6rem 1rem;
+  background: #21409a;
+  color: #fff;
+}
+
+@keyframes pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+  100% { transform: scale(1); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-7px); }
+  75% { transform: translateX(7px); }
+}
